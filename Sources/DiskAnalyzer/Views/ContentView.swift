@@ -30,7 +30,12 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let root = scanner.root {
-            DetailsList(node: root, selection: $selection)
+            HSplitView {
+                DetailsList(node: root, selection: $selection)
+                    .frame(minWidth: 280, idealWidth: 340)
+                TreemapView(node: root, selection: $selection)
+                    .frame(minWidth: 400)
+            }
         } else {
             VStack(spacing: 10) {
                 Text("Pick a folder to scan").font(.title3)
