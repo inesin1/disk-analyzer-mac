@@ -3,6 +3,7 @@ import SwiftUI
 struct TreemapView: View {
     let node: FSNode
     @Binding var selection: UUID?
+    let onDrillDown: (FSNode) -> Void
 
     var body: some View {
         GeometryReader { geometry in
@@ -14,6 +15,7 @@ struct TreemapView: View {
                         .frame(width: tile.rect.width, height: tile.rect.height)
                         .offset(x: tile.rect.minX, y: tile.rect.minY)
                         .onTapGesture { selection = tile.node.id }
+                        .simultaneousGesture(TapGesture(count: 2).onEnded { onDrillDown(tile.node) })
                 }
             }
         }

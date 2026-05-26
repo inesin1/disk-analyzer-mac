@@ -3,11 +3,18 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var scanner = DiskScanner()
+    @State private var currentNode: FSNode?
+    @State private var pathStack: [FSNode] = []
     @State private var selection: UUID?
 
     private var selectedNode: FSNode? {
-        guard let selection, let root = scanner.root else { return nil }
-        return root.children.first { $0.id == selection }
+        guard let selection, let currentNode else { return nil }
+        return currentNode.children.first { $0.id == selection }
+    }
+
+    private var selectedDirectory: FSNode? {
+        guard let selectedNode, selectedNode.isDirectory else { return nil }
+        return selectedNode
     }
 
     var body: some View {
@@ -19,6 +26,12 @@ struct ContentView: View {
             statusBar
         }
         .frame(minWidth: 900, minHeight: 600)
+        .onChange(of: scanner.root) { _, root in
+            guard let root else { return }
+            currentNode = root
+            pathStack = [root]
+            selection = nil
+        }
     }
 
     @ViewBuilder
@@ -29,11 +42,11 @@ struct ContentView: View {
                 Text(scanner.status).font(.system(size: 11)).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let root = scanner.root {
+        } else if let currentNode {
             HSplitView {
-                DetailsList(node: root, selection: $selection)
+                DetailsList(node: currentNode, selection: $selection)
                     .frame(minWidth: 280, idealWidth: 340)
-                TreemapView(node: root, selection: $selection)
+                TreemapView(node: currentNode, selection: $selection, onDrillDown: drillDown)
                     .frame(minWidth: 400)
             }
         } else {
@@ -56,9 +69,46 @@ struct ContentView: View {
             Button { scanner.scan(url: URL(fileURLWithPath: "/")) } label: {
                 Label("Whole Disk", systemImage: "internaldrive")
             }
+
+            Divider().frame(height: 16)
+
+            Button { goUp() } label: { Image(systemName: "arrow.up") }
+                .disabled(pathStack.count <= 1)
+                .keyboardShortcut(.upArrow, modifiers: .command)
+            Button {
+                if let selectedDirectory { drillDown(selectedDirectory) }
+            } label: {
+                Image(systemName: "arrow.down")
+            }
+            .disabled(selectedDirectory == nil)
+
+            breadcrumbs
+
             Spacer()
         }
         .padding(8)
+    }
+
+    private var breadcrumbs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(Array(pathStack.enumerated()), id: \.element.id) { index, node in
+                    Button(node.name) {
+                        pathStack = Array(pathStack.prefix(index + 1))
+                        currentNode = node
+                        selection = nil
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 4)
+
+                    if index < pathStack.count - 1 {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
     }
 
     private var statusBar: some View {
@@ -83,5 +133,22 @@ struct ContentView: View {
         if panel.runModal() == .OK, let url = panel.url {
             scanner.scan(url: url)
         }
+    }
+
+    private func drillDown(_ node: FSNode) {
+        guard node.isDirectory, !node.children.isEmpty else {
+            selection = node.id
+            return
+        }
+        pathStack.append(node)
+        currentNode = node
+        selection = nil
+    }
+
+    private func goUp() {
+        guard pathStack.count > 1 else { return }
+        pathStack.removeLast()
+        currentNode = pathStack.last
+        selection = nil
     }
 }
