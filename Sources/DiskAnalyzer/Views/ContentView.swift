@@ -43,10 +43,11 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let currentNode {
+            let actions = makeActions()
             HSplitView {
-                DetailsList(node: currentNode, selection: $selection)
+                DetailsList(node: currentNode, selection: $selection, actions: actions)
                     .frame(minWidth: 280, idealWidth: 340)
-                TreemapView(node: currentNode, selection: $selection, onDrillDown: drillDown)
+                TreemapView(node: currentNode, selection: $selection, actions: actions)
                     .frame(minWidth: 400)
             }
         } else {
@@ -85,6 +86,12 @@ struct ContentView: View {
             breadcrumbs
 
             Spacer()
+
+            if let selectedNode {
+                Button { revealInFinder(selectedNode) } label: {
+                    Label("Reveal in Finder", systemImage: "magnifyingglass")
+                }
+            }
         }
         .padding(8)
     }
@@ -150,5 +157,24 @@ struct ContentView: View {
         pathStack.removeLast()
         currentNode = pathStack.last
         selection = nil
+    }
+
+    private func revealInFinder(_ node: FSNode) {
+        NSWorkspace.shared.activateFileViewerSelecting([node.url])
+    }
+
+    private func copyPath(_ node: FSNode) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(node.url.path, forType: .string)
+    }
+
+    private func makeActions() -> NodeActions {
+        NodeActions(
+            reveal: revealInFinder,
+            open: { NSWorkspace.shared.open($0.url) },
+            copyPath: copyPath,
+            drillDown: drillDown
+        )
     }
 }

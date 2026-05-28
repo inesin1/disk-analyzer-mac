@@ -4,6 +4,7 @@ import SwiftUI
 struct DetailsList: View {
     let node: FSNode?
     @Binding var selection: UUID?
+    let actions: NodeActions
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -40,5 +41,6 @@ struct DetailsList: View {
                 .foregroundStyle(.secondary)
         }
         .contentShape(Rectangle())
+        .contextMenu { nodeContextMenu(child, actions: actions) }
     }
 }
