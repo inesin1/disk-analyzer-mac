@@ -3,6 +3,7 @@ import SwiftUI
 /// Everything a node view can do, injected from `ContentView` so the treemap and the list
 /// behave identically.
 struct NodeActions {
+    var trash: (FSNode) -> Void
     var reveal: (FSNode) -> Void
     var open: (FSNode) -> Void
     var copyPath: (FSNode) -> Void
@@ -18,4 +19,6 @@ func nodeContextMenu(_ node: FSNode, actions: NodeActions) -> some View {
     Button("Open in Finder") { actions.open(node) }
     Button("Reveal in Finder") { actions.reveal(node) }
     Button("Copy Path") { actions.copyPath(node) }
+    Divider()
+    Button("Move to Trash", role: .destructive) { actions.trash(node) }
 }

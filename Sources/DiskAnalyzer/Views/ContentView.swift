@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var currentNode: FSNode?
     @State private var pathStack: [FSNode] = []
     @State private var selection: UUID?
+    @State private var refreshTick = 0
 
     private var selectedNode: FSNode? {
         guard let selection, let currentNode else { return nil }
@@ -50,6 +51,9 @@ struct ContentView: View {
                 TreemapView(node: currentNode, selection: $selection, actions: actions)
                     .frame(minWidth: 400)
             }
+            // FSNode is a class, so deleting a child does not change any value SwiftUI observes.
+            // Bumping the id forces both panes to rebuild with the new sizes.
+            .id(refreshTick)
         } else {
             VStack(spacing: 10) {
                 Text("Pick a folder to scan").font(.title3)
@@ -88,6 +92,12 @@ struct ContentView: View {
             Spacer()
 
             if let selectedNode {
+                Button(role: .destructive) { trash(selectedNode) } label: {
+                    Label("Trash", systemImage: "trash")
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .help("Command-Delete — move to trash")
+
                 Button { revealInFinder(selectedNode) } label: {
                     Label("Reveal in Finder", systemImage: "magnifyingglass")
                 }
@@ -159,6 +169,42 @@ struct ContentView: View {
         selection = nil
     }
 
+    private func trash(_ node: FSNode) {
+        let size = ByteCountFormatter.string(fromByteCount: node.size, countStyle: .file)
+
+        let alert = NSAlert()
+        alert.messageText = "Move to trash?"
+        alert.informativeText = "\(node.url.path)\n\(size)"
+        alert.addButton(withTitle: "Move to Trash")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            try FileManager.default.trashItem(at: node.url, resultingItemURL: nil)
+            removeFromTree(node)
+        } catch {
+            let failure = NSAlert()
+            failure.messageText = "Could not delete \(node.name)"
+            failure.informativeText = error.localizedDescription
+            failure.runModal()
+        }
+        selection = nil
+    }
+
+    /// Drops the node and subtracts its size from every ancestor, so the treemap stays honest
+    /// without a rescan.
+    private func removeFromTree(_ node: FSNode) {
+        guard let parent = node.parent else { return }
+        parent.children.removeAll { $0.id == node.id }
+
+        var ancestor: FSNode? = parent
+        while let current = ancestor {
+            current.size -= node.size
+            ancestor = current.parent
+        }
+        refreshTick &+= 1
+    }
+
     private func revealInFinder(_ node: FSNode) {
         NSWorkspace.shared.activateFileViewerSelecting([node.url])
     }
@@ -171,6 +217,7 @@ struct ContentView: View {
 
     private func makeActions() -> NodeActions {
         NodeActions(
+            trash: trash,
             reveal: revealInFinder,
             open: { NSWorkspace.shared.open($0.url) },
             copyPath: copyPath,
