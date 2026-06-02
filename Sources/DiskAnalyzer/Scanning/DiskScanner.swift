@@ -6,7 +6,32 @@ final class DiskScanner: ObservableObject {
     @Published private(set) var status = ""
     @Published private(set) var root: FSNode?
 
+    /// Identifies a file across mount points; used to count hard-linked files only once.
+    private struct DevInode: Hashable {
+        let dev: Int32
+        let ino: UInt64
+    }
+
+    private var visitedInodes = Set<DevInode>()
     private var fileCount = 0
+
+    /// Paths that would otherwise be counted twice or are not real storage: the Data volume
+    /// is already visible through firmlinks (/Users, /Applications, …), the rest are
+    /// snapshots, swap, device nodes and external mounts.
+    private let skipPaths: Set<String> = [
+        "/System/Volumes/Data",
+        "/System/Volumes/Preboot",
+        "/System/Volumes/Recovery",
+        "/System/Volumes/Update",
+        "/System/Volumes/VM",
+        "/System/Volumes/xarts",
+        "/System/Volumes/iSCPreboot",
+        "/System/Volumes/Hardware",
+        "/private/var/vm",
+        "/.vol",
+        "/dev",
+        "/Volumes",
+    ]
 
     func scan(url: URL) {
         DispatchQueue.main.async {
@@ -17,6 +42,7 @@ final class DiskScanner: ObservableObject {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+            self.visitedInodes.removeAll()
             self.fileCount = 0
 
             let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? true
@@ -34,13 +60,19 @@ final class DiskScanner: ObservableObject {
     }
 
     private func walk(_ node: FSNode) {
+        if node.isDirectory && skipPaths.contains(node.url.path) {
+            return
+        }
+
         fileCount += 1
 
-        let keys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey, .isSymbolicLinkKey]
-
         guard node.isDirectory else {
-            let values = try? node.url.resourceValues(forKeys: keys)
-            node.size = Int64(values?.fileSize ?? 0)
+            let (size, inode) = sizeAndInode(of: node.url)
+            if let inode {
+                node.size = visitedInodes.insert(inode).inserted ? size : 0
+            } else {
+                node.size = size
+            }
             return
         }
 
@@ -51,6 +83,7 @@ final class DiskScanner: ObservableObject {
             }
         }
 
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey]
         let contents = (try? FileManager.default.contentsOfDirectory(
             at: node.url,
             includingPropertiesForKeys: Array(keys),
@@ -71,6 +104,22 @@ final class DiskScanner: ObservableObject {
                 node.children.append(child)
             }
         }
+    }
+
+    /// Allocated size plus, for hard-linked files, the key used to deduplicate them.
+    ///
+    /// `st_blocks` is the space actually taken on disk, unlike `st_size`: iCloud placeholders
+    /// report a large logical size while holding no blocks, and APFS clones share their blocks
+    /// with the original.
+    private func sizeAndInode(of url: URL) -> (Int64, DevInode?) {
+        var info = stat()
+        guard url.path.withCString({ lstat($0, &info) }) == 0 else { return (0, nil) }
+
+        let size = Int64(info.st_blocks) * 512
+        let inode = info.st_nlink > 1
+            ? DevInode(dev: Int32(info.st_dev), ino: UInt64(info.st_ino))
+            : nil
+        return (size, inode)
     }
 
     private func sortBySizeDescending(_ node: FSNode) {
