@@ -3,7 +3,7 @@ import SwiftUI
 /// Flat list of the current node's children, sorted by size.
 struct DetailsList: View {
     let node: FSNode?
-    @Binding var selection: UUID?
+    @Binding var selection: Set<UUID>
     let actions: NodeActions
 
     var body: some View {
@@ -20,6 +20,7 @@ struct DetailsList: View {
             Divider()
 
             if let node {
+                // List gives Command-click and Shift-click selection for free on macOS.
                 List(node.children, id: \.id, selection: $selection) { child in
                     row(for: child)
                 }

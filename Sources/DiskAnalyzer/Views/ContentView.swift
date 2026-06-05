@@ -5,17 +5,17 @@ struct ContentView: View {
     @StateObject private var scanner = DiskScanner()
     @State private var currentNode: FSNode?
     @State private var pathStack: [FSNode] = []
-    @State private var selection: UUID?
+    @State private var selection: Set<UUID> = []
     @State private var refreshTick = 0
 
-    private var selectedNode: FSNode? {
-        guard let selection, let currentNode else { return nil }
-        return currentNode.children.first { $0.id == selection }
+    private var selectedNodes: [FSNode] {
+        guard let currentNode else { return [] }
+        return currentNode.children.filter { selection.contains($0.id) }
     }
 
     private var selectedDirectory: FSNode? {
-        guard let selectedNode, selectedNode.isDirectory else { return nil }
-        return selectedNode
+        guard selectedNodes.count == 1, let node = selectedNodes.first, node.isDirectory else { return nil }
+        return node
     }
 
     var body: some View {
@@ -31,7 +31,7 @@ struct ContentView: View {
             guard let root else { return }
             currentNode = root
             pathStack = [root]
-            selection = nil
+            selection.removeAll()
         }
     }
 
@@ -81,7 +81,7 @@ struct ContentView: View {
                 .disabled(pathStack.count <= 1)
                 .keyboardShortcut(.upArrow, modifiers: .command)
             Button {
-                if let selectedDirectory { drillDown(selectedDirectory) }
+                if let node = selectedDirectory { drillDown(node) }
             } label: {
                 Image(systemName: "arrow.down")
             }
@@ -91,14 +91,25 @@ struct ContentView: View {
 
             Spacer()
 
-            if let selectedNode {
-                Button(role: .destructive) { trash(selectedNode) } label: {
-                    Label("Trash", systemImage: "trash")
-                }
-                .keyboardShortcut(.delete, modifiers: .command)
-                .help("Command-Delete — move to trash")
+            Button(role: .destructive) { trash(selectedNodes) } label: {
+                Label(
+                    selectedNodes.isEmpty ? "Trash" : "Trash (\(selectedNodes.count))",
+                    systemImage: "trash"
+                )
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+            .disabled(selectedNodes.isEmpty)
+            .help("Command-Delete — move to trash")
 
-                Button { revealInFinder(selectedNode) } label: {
+            // Plain Delete as a second shortcut, the way Finder does it.
+            Button("") { trash(selectedNodes) }
+                .keyboardShortcut(.delete, modifiers: [])
+                .disabled(selectedNodes.isEmpty)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+
+            if selectedNodes.count == 1 {
+                Button { revealInFinder(selectedNodes[0]) } label: {
                     Label("Reveal in Finder", systemImage: "magnifyingglass")
                 }
             }
@@ -113,7 +124,7 @@ struct ContentView: View {
                     Button(node.name) {
                         pathStack = Array(pathStack.prefix(index + 1))
                         currentNode = node
-                        selection = nil
+                        selection.removeAll()
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 4)
@@ -132,13 +143,20 @@ struct ContentView: View {
         HStack {
             Text(scanner.status).font(.system(size: 11)).foregroundStyle(.secondary)
             Spacer()
-            if let selectedNode {
-                let size = ByteCountFormatter.string(fromByteCount: selectedNode.size, countStyle: .file)
-                Text("Selected: \(selectedNode.name) — \(size)").font(.system(size: 11))
+            if !selectedNodes.isEmpty {
+                Text(selectionSummary).font(.system(size: 11))
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+
+    private var selectionSummary: String {
+        let total = selectedNodes.reduce(0) { $0 + $1.size }
+        let size = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+        return selectedNodes.count == 1
+            ? "Selected: \(selectedNodes[0].name) — \(size)"
+            : "Selected: \(selectedNodes.count) items — \(size)"
     }
 
     private func pickFolder() {
@@ -154,45 +172,66 @@ struct ContentView: View {
 
     private func drillDown(_ node: FSNode) {
         guard node.isDirectory, !node.children.isEmpty else {
-            selection = node.id
+            selection = [node.id]
             return
         }
         pathStack.append(node)
         currentNode = node
-        selection = nil
+        selection.removeAll()
     }
 
     private func goUp() {
         guard pathStack.count > 1 else { return }
         pathStack.removeLast()
         currentNode = pathStack.last
-        selection = nil
+        selection.removeAll()
     }
 
-    private func trash(_ node: FSNode) {
-        let size = ByteCountFormatter.string(fromByteCount: node.size, countStyle: .file)
+    /// Moves every node to the trash behind a single confirmation.
+    private func trash(_ nodes: [FSNode]) {
+        guard !nodes.isEmpty, confirmTrash(nodes) else { return }
+
+        var failures: [(node: FSNode, error: Error)] = []
+        for node in nodes {
+            do {
+                try FileManager.default.trashItem(at: node.url, resultingItemURL: nil)
+                removeFromTree(node)
+            } catch {
+                failures.append((node, error))
+            }
+        }
+        selection.removeAll()
+
+        guard !failures.isEmpty else { return }
+        let alert = NSAlert()
+        alert.messageText = "Could not delete \(failures.count) of \(nodes.count)"
+        alert.informativeText = failures
+            .prefix(5)
+            .map { "• \($0.node.name): \($0.error.localizedDescription)" }
+            .joined(separator: "\n")
+        alert.runModal()
+    }
+
+    private func confirmTrash(_ nodes: [FSNode]) -> Bool {
+        let total = nodes.reduce(0) { $0 + $1.size }
+        let size = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
 
         let alert = NSAlert()
-        alert.messageText = "Move to trash?"
-        alert.informativeText = "\(node.url.path)\n\(size)"
+        if nodes.count == 1 {
+            alert.messageText = "Move to trash?"
+            alert.informativeText = "\(nodes[0].url.path)\n\(size)"
+        } else {
+            let preview = nodes.prefix(5).map { "• \($0.name)" }.joined(separator: "\n")
+            let more = nodes.count > 5 ? "\n… and \(nodes.count - 5) more" : ""
+            alert.messageText = "Move \(nodes.count) items to trash?"
+            alert.informativeText = "\(preview)\(more)\n\nTotal size: \(size)"
+        }
         alert.addButton(withTitle: "Move to Trash")
         alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        do {
-            try FileManager.default.trashItem(at: node.url, resultingItemURL: nil)
-            removeFromTree(node)
-        } catch {
-            let failure = NSAlert()
-            failure.messageText = "Could not delete \(node.name)"
-            failure.informativeText = error.localizedDescription
-            failure.runModal()
-        }
-        selection = nil
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// Drops the node and subtracts its size from every ancestor, so the treemap stays honest
-    /// without a rescan.
     private func removeFromTree(_ node: FSNode) {
         guard let parent = node.parent else { return }
         parent.children.removeAll { $0.id == node.id }
@@ -209,18 +248,24 @@ struct ContentView: View {
         NSWorkspace.shared.activateFileViewerSelecting([node.url])
     }
 
-    private func copyPath(_ node: FSNode) {
+    private func copyPaths(_ nodes: [FSNode]) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(node.url.path, forType: .string)
+        pasteboard.setString(nodes.map(\.url.path).joined(separator: "\n"), forType: .string)
+    }
+
+    /// Right-clicking inside a multi-selection acts on the whole selection, otherwise only on
+    /// the node under the cursor.
+    private func contextTargets(for node: FSNode) -> [FSNode] {
+        selection.count > 1 && selection.contains(node.id) ? selectedNodes : [node]
     }
 
     private func makeActions() -> NodeActions {
         NodeActions(
-            trash: trash,
+            trash: { trash(contextTargets(for: $0)) },
             reveal: revealInFinder,
             open: { NSWorkspace.shared.open($0.url) },
-            copyPath: copyPath,
+            copyPath: { copyPaths(contextTargets(for: $0)) },
             drillDown: drillDown
         )
     }

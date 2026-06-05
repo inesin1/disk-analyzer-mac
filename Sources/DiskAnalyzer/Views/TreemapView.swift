@@ -1,8 +1,9 @@
+import AppKit
 import SwiftUI
 
 struct TreemapView: View {
     let node: FSNode
-    @Binding var selection: UUID?
+    @Binding var selection: Set<UUID>
     let actions: NodeActions
 
     var body: some View {
@@ -11,14 +12,29 @@ struct TreemapView: View {
             ZStack(alignment: .topLeading) {
                 Color.black.opacity(0.05)
                 ForEach(rects, id: \.node.id) { tile in
-                    TreemapCell(tile: tile, isSelected: selection == tile.node.id)
-                        .frame(width: tile.rect.width, height: tile.rect.height)
-                        .offset(x: tile.rect.minX, y: tile.rect.minY)
-                        .onTapGesture { selection = tile.node.id }
-                        .simultaneousGesture(TapGesture(count: 2).onEnded { actions.drillDown(tile.node) })
-                        .contextMenu { nodeContextMenu(tile.node, actions: actions) }
+                    TreemapCell(
+                        tile: tile,
+                        isSelected: selection.contains(tile.node.id),
+                        onSelect: { toggle($0, id: tile.node.id) },
+                        onDoubleClick: { actions.drillDown(tile.node) },
+                        actions: actions
+                    )
+                    .frame(width: tile.rect.width, height: tile.rect.height)
+                    .offset(x: tile.rect.minX, y: tile.rect.minY)
                 }
             }
+        }
+    }
+
+    private func toggle(_ extendSelection: Bool, id: UUID) {
+        guard extendSelection else {
+            selection = [id]
+            return
+        }
+        if selection.contains(id) {
+            selection.remove(id)
+        } else {
+            selection.insert(id)
         }
     }
 }
@@ -26,6 +42,10 @@ struct TreemapView: View {
 private struct TreemapCell: View {
     let tile: TreemapRect
     let isSelected: Bool
+    /// Parameter tells whether Command was held, i.e. whether to extend the selection.
+    let onSelect: (Bool) -> Void
+    let onDoubleClick: () -> Void
+    let actions: NodeActions
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -55,6 +75,11 @@ private struct TreemapCell: View {
             }
         }
         .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect(NSEvent.modifierFlags.contains(.command))
+        }
+        .simultaneousGesture(TapGesture(count: 2).onEnded(onDoubleClick))
+        .contextMenu { nodeContextMenu(tile.node, actions: actions) }
         .help("\(tile.node.url.path)\n\(ByteCountFormatter.string(fromByteCount: tile.node.size, countStyle: .file))")
     }
 
