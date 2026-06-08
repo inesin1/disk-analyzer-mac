@@ -27,6 +27,11 @@ struct ContentView: View {
             statusBar
         }
         .frame(minWidth: 900, minHeight: 600)
+        .onAppear {
+            DoubleClickMonitor.install { _ in
+                if let node = selectedDirectory { drillDown(node) }
+            }
+        }
         .onChange(of: scanner.root) { _, root in
             guard let root else { return }
             currentNode = root
@@ -86,6 +91,8 @@ struct ContentView: View {
                 Image(systemName: "arrow.down")
             }
             .disabled(selectedDirectory == nil)
+            .keyboardShortcut(.return, modifiers: [])
+            .help("Return — open the selected folder")
 
             breadcrumbs
 

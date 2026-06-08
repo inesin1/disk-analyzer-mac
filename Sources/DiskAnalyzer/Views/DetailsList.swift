@@ -25,6 +25,8 @@ struct DetailsList: View {
                     row(for: child)
                 }
                 .listStyle(.inset)
+                .onKeyPress(.return) { drillDownSelected() }
+                .onKeyPress(.space) { drillDownSelected() }
             } else {
                 Text("No data").foregroundStyle(.secondary).padding()
             }
@@ -43,5 +45,15 @@ struct DetailsList: View {
         }
         .contentShape(Rectangle())
         .contextMenu { nodeContextMenu(child, actions: actions) }
+    }
+
+    private func drillDownSelected() -> KeyPress.Result {
+        guard let node, selection.count == 1, let id = selection.first,
+              let child = node.children.first(where: { $0.id == id }),
+              child.isDirectory
+        else { return .handled }
+
+        actions.drillDown(child)
+        return .handled
     }
 }
