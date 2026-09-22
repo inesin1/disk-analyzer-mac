@@ -7,19 +7,30 @@ things to the trash straight from either pane.
 Written because every free macOS equivalent is either nagware or reports sizes that don't add
 up to what the disk says is used.
 
-## Build and run
+## Download & Install (Pre-built)
+
+You can download a pre-built ready-to-run app (no Xcode required) from the **[Releases](../../releases)** page.
+
+1. Download the `DiskAnalyzer-vX.X.X.zip` from the latest release.
+2. Unzip it and move `Disk Analyzer.app` to your Applications folder.
+3. Open it!
+
+*Note:* Because the app is not currently signed with an Apple Developer certificate, macOS might show a warning ("can't be opened because it is from an unidentified developer"). To bypass this, right-click (or Control-click) on `Disk Analyzer.app` and choose **Open**.
+
+Scanning `/` needs Full Disk Access, otherwise large parts of the tree silently come back
+empty: System Settings → Privacy & Security → Full Disk Access, then add the `Disk Analyzer.app`.
+
+## Build and run from source
+
+If you prefer to build from source:
 
 ```sh
-swift build -c release
-.build/release/DiskAnalyzer
+./build_app.sh
+open "Disk Analyzer.app"
 ```
 
 Or `swift run` for a debug build. Requires macOS 14+ and a Swift 6 toolchain (Xcode 16 or the
 matching command line tools). The package opens directly in Xcode if you'd rather run it there.
-
-Scanning `/` needs Full Disk Access, otherwise large parts of the tree silently come back
-empty: System Settings → Privacy & Security → Full Disk Access, then add the binary (or
-Xcode/Terminal, depending on how you launch it).
 
 ## Sizes
 
