@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build_and_release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate Icon
+        run: |
+          pip install Pillow
+          python generate_icon.py
+
+      - name: Extract version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Build App
+        run: |
+          chmod +x build_app.sh
+          ./build_app.sh ${{ env.VERSION }}
+
+      - name: Compress App
+        run: |
+          zip -r "DiskAnalyzer-${{ env.VERSION }}.zip" "Disk Analyzer.app"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "DiskAnalyzer-${{ env.VERSION }}.zip"
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
